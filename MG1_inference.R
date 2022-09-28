@@ -43,13 +43,14 @@ mg1.inference <- function(opt, inf.task, plot.task) {
     save(res.mcmc, obs, opt, file = opt$fn.samples.mcmc)
   }
   
+  # Run ABC analyses
   for (a in 1:length(opt.abc)) {
     if (!inf.task[1+a]) {
       next
     }
     set.seed(seed.data)
-    # 2/3 infer parameters using ABC-MCMC
-    #####################################
+    # 2/3 infer parameters using ABC-MCMC (produces also ABC-P)
+    ###########################################################
     if (is.null(opt.abc[[a]]$C) || is.na(opt.abc[[a]]$C)) {
       # option to use the cov matrix from standard MCMC run for ABC-MCMC:
       if (!inf.task[1]) {
@@ -145,6 +146,8 @@ mg1.inference <- function(opt, inf.task, plot.task) {
     save(res.abc, obs, opt, file = opt$fn.samples[a])
   }
   
+  
+  # Compute the rest of the ABC results (fast) and then plot/analyze them
   if (plot.task) {
     graphics.off()
     set.seed(seed.data)
@@ -170,23 +173,21 @@ mg1.inference <- function(opt, inf.task, plot.task) {
     res.true <- mg1.pred(y.obs, x.obs, v.obs, theta.true, n.pred, opt.plt$q, true.pred = T)
     
     for (a in 1:length(opt.abc)) {
-      # ABC-based predictive posterior for y
+      # ABC-based predictive posterior for y (ABC-P)
       res.abca[[a]]$pred.y.stats <- pred.post.stats(res.abca[[a]]$y.sims, opt.plt$q, T, 1:nn)
       
-      # ABC-based predictive posterior for waiting times
+      # ABC-based predictive posterior for waiting times (ABC-P)
       #res.abc$pred.wts <- colCumsums(res.abca[[a]]$y.sims)[(n+1):nn,] - res.abca[[a]]$lat[(n+1):nn,] # 'matrixStats'
       res.abca[[a]]$pred.wts <- colCumsums(res.abca[[a]]$y.sims) - res.abca[[a]]$lat # 'matrixStats'
       res.abca[[a]]$pred.wts.stats <- pred.post.stats(res.abca[[a]]$pred.wts, opt.plt$q, T, 1:nn)
     }
     
-    # 3/3 ABC with exact predictive lik. simulation given latent variable v[n]
-    ##########################################################################
-    # We use the same ABC posterior as above -> No separate parameter fitting
+    # 3/3 ABC with exact predictive lik. simulation given latent variable v[n] (ABC-L)
+    ##################################################################################
+    # We use the same ABC posterior as above -> No separate parameter fitting.
     # NOTE: We consider the second set of summary stats only.
     res.abclat <- mg1.pred(y.obs, x.obs, res.abca[[2]]$lat.sims, res.abca[[2]]$thetas, n.pred, opt.plt$q)
     
-    ## PLOT RESULTS
-    ###############
     # plot MCMC chains
     simple.plot.mcmc.chain(rbind(res.mcmc$thetas,res.mcmc$vs[c(1:3,(n-2):n),]))
     for (a in 1:length(opt.abc)) {
@@ -201,8 +202,8 @@ mg1.inference <- function(opt, inf.task, plot.task) {
     print(min(y.obs))
     
     # plot predictions
-    mg1.plot.pred.dens(n, res.mcmc, res.abca, res.abclat, res.true, opt.plt$pp.fig, opt) 
-    mg1.plot.pred.dens(n, res.mcmc, res.abca, res.abclat, res.true, opt.plt$pp.fig, opt, plot.wts=T)
+    mg1.plot.pred.dens(n, res.mcmc, res.abca, res.abclat, res.true, opt) 
+    mg1.plot.pred.dens(n, res.mcmc, res.abca, res.abclat, res.true, opt, plot.wts=T)
     
     mg1.plot.pred(obs, n, n.pred, res.mcmc, res.abca, res.abclat, res.true, opt)
     mg1.plot.pred(obs, n, n.pred, res.mcmc, res.abca, res.abclat, res.true, opt, plot.wts=T)
@@ -245,6 +246,7 @@ mg1.pred <- function(y.obs, x.obs, vs, thetas, n.pred, q, true.pred=F) {
 }
 
 ################################################################################
+# Plotting etc. functions:
 # NOTE: All plotting functions below currently assume two set of summary stats 
 # were considered i.e. length of res.abca is 2 and both elements contain results. 
 
@@ -261,7 +263,7 @@ mg1.plot.params <- function(n, res.mcmc, res.abca, opt, plot.eta=F, th1.ub=Inf) 
   fn <- file.path(opt$save.loc, paste0('params_plot',ifelse(plot.eta,'_eta',''),opt$fn.ext,'.pdf'))
   pdf(file=fn, width = 2*d, height = 2)
   par(mfrow=c(1,d))
-  par(mai=c(0.45,0.2,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.35,0.15,0.01,0.07), mgp=c(1.8,0.5,0))
   if (plot.eta) {
     f <- function(th,i) if(i==1){th[1,]} else if(i==2){th[2,]-th[1,]} else{log(th[3,])}
   } else {
@@ -296,7 +298,7 @@ mg1.plot.params <- function(n, res.mcmc, res.abca, opt, plot.eta=F, th1.ub=Inf) 
   fn <- file.path(opt$save.loc, paste0('params_plot_v',opt$fn.ext,'.pdf'))
   pdf(file=fn, width = 2*d, height = 2)
   par(mfrow=c(1,d))
-  par(mai=c(0.45,0.2,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.35,0.15,0.01,0.07), mgp=c(1.8,0.5,0))
   kde <- function(samples) density(samples, adjust=1.2)
   for (i in 1:d) {
     ind <- n-d+i
@@ -318,7 +320,7 @@ mg1.plot.params <- function(n, res.mcmc, res.abca, opt, plot.eta=F, th1.ub=Inf) 
   dev.off()
 }
 
-mg1.plot.pred.dens <- function(n, res.mcmc, res.abca, res.abclat, res.true, pp.fig, opt, plot.wts=F) {
+mg1.plot.pred.dens <- function(n, res.mcmc, res.abca, res.abclat, res.true, opt, plot.wts=F) {
   # Plots prediction density of interarrival times y or the corresponding waiting times, 
   # at some individual future times. 
   
@@ -327,14 +329,15 @@ mg1.plot.pred.dens <- function(n, res.mcmc, res.abca, res.abclat, res.true, pp.f
   cols <- c('black','magenta','red','blue','orange')
   #y.name <- '\\tilde{y}' # new interdeparture time
   y.name <- 'y' # new interdeparture time
-  #wt.name <- '\\tilde{\\omega}' # new waiting time
-  wt.name <- '\\omega' # new waiting time
+  wt.name <- '\\tilde{\\omega}' # new waiting time
+  #wt.name <- '\\omega' # new waiting time. (This was originally used so that tilde was missing.)
   
+  pp.fig <- opt$plt$pp.fig
   npp <- length(pp.fig)
   fn <- file.path(opt$save.loc, paste0(ifelse(plot.wts,'pred_plot_1_wts','pred_plot_1'),opt$fn.ext,'.pdf'))
   pdf(file=fn, width = npp*2, height = 2)
   par(mfrow=c(1,npp))
-  par(mai=c(0.45,0.2,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.35,0.15,0.01,0.07), mgp=c(1.8,0.5,0))
   if (plot.wts) {
     kde <- function(samples) density.bound(samples, lb = 0, adjust = 1)
     get.samples <- function(res,i,o=0) res$pred.wts[o+pp.fig[i],]
@@ -349,6 +352,9 @@ mg1.plot.pred.dens <- function(n, res.mcmc, res.abca, res.abclat, res.true, pp.f
     pabclat <- kde(get.samples(res.abclat,i))
     ptrue <- kde(get.samples(res.true,i))
     maxx <- sort(c(max(pmcmc$x), max(pabc1$x), max(pabc2$x), max(pabclat$x)),T)[2] # useful when one case has long tail
+    if (plot.wts && opt$scenario==201 && npp==3) {
+      maxx <- min(maxx, c(100,150,200)[i]) # additional ad-hoc adjustment to plotting limits
+    }
     rax <- c(min(pmcmc$x, pabc1$x, pabc2$x, pabclat$x), maxx)
     ray <- range(pmcmc$y, pabc1$y, pabc2$y, pabclat$y)
     xla <- TeX(paste0('$',ifelse(plot.wts,wt.name,y.name),'_{',n + pp.fig[i],'}$'))
@@ -388,7 +394,7 @@ mg1.plot.pred <- function(obs, n, n.pred, res.mcmc, res.abca, res.abclat, res.tr
   t.all <- 1:nn
   fn <- file.path(opt$save.loc, paste0(ifelse(plot.wts,'pred_plot_2_wts','pred_plot_2'),opt$fn.ext,'.pdf'))
   pdf(file=fn, width = 3.4, height = 3)
-  par(mai=c(0.6,0.6,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.6,0.6,0.05,0.05), mgp=c(1.8,0.5,0))
   
   rax <- c(1,nn)
   if (plot.wts) {
@@ -456,7 +462,7 @@ mg1.plot.just.data <- function(obs, n, opt) {
   
   fn <- file.path(opt$save.loc, paste0('data_plot',opt$fn.ext,'.pdf'))
   pdf(file=fn, width = 4.2, height = 3)
-  par(mai=c(0.6,0.6,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.6,0.6,0.05,0.07), mgp=c(1.8,0.5,0))
   
   plot(1:n, obs$y[1:n], type = 'p', pch=16, cex=ds, xlab = x.name, ylab=y.name, col=cols, xlim=c(1,n)) # observed data
   lines(1:n, obs$y[1:n], type = 'l', col=cols) # adds lines between points

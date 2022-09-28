@@ -1,8 +1,10 @@
 mg1.run.experiment <- function(seed.data=NA, seed.inf=NA, scenario=NA) {
   # Single run takes ~8min
   
-  # which inference experiment to run
+  # Which inference experiment to run
+  # **Growing queue case (Section 5.1.3)**:
   scenario <- 101
+  # **Varying queue case (Section 5.1.2)**:
   #scenario <- 201 
   
   seed.data <- 123456
@@ -21,7 +23,8 @@ mg1.run.experiment <- function(seed.data=NA, seed.inf=NA, scenario=NA) {
   
   # run the inference and plot the results
   # inf.task: whether to run 1) MCMC 2) ABC ['baseline' sumstats] 3) ABC [sumstats for pred.]
-  mg1.inference(opt, inf.task=c(1,1,1)-1, plot.task=1)
+  #mg1.inference(opt, inf.task=c(1,1,1), plot.task=1) # compute and then plot
+  mg1.inference(opt, inf.task=c(0,0,0), plot.task=1) # just plot already computed results
   
   invisible()
 }
@@ -43,7 +46,7 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
   opt.abc <- vector('list',2); plt <- list()
   
   if (scenario == 101 || scenario == 102) { 
-    # param.scenario 1 (increasing queue - approx. linear grow)
+    # param.scenario 1 (growing queue - approx. linear grow)
     
     ## MODEL AND INFERENCE SETTINGS
     sce$param.scenario <- 1
@@ -70,7 +73,7 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
     opt.abc[[1]]$cov.adapt.e <- 10^-6
     opt.abc[[1]]$C <- diag(c(0.05, 0.3, 0.075)^2)
     
-    opt.abc[[1]]$summary <- 'orig' # 'orig', 'pred', 'pred2'
+    opt.abc[[1]]$summary <- 'orig' # 'orig', 'pred', 'pred2', 'predf'
     opt.abc[[1]]$d.n <- 1000 # for scaling of summaries
     opt.abc[[1]]$d.cov.method <- 'cov' # 'cov', 'stdev', 'mad'
     if (scenario == 101) {
@@ -81,14 +84,14 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
     
     # pred summary case:
     opt.abc[[2]] <- opt.abc[[1]]
-    opt.abc[[2]]$summary <- 'predf' # 'orig', 'pred', 'pred2'
+    opt.abc[[2]]$summary <- 'predf' # 'orig', 'pred', 'pred2', 'predf'
     
     # manually adjust suitable ABC threshold
     # acc prob ~2%
     if (scenario == 101) {
       if (seed.data == 123456) {
-        opt.abc[[1]]$eps <- 1.6
-        opt.abc[[2]]$eps <- c(7, 5)
+        opt.abc[[1]]$eps <- 1.7
+        opt.abc[[2]]$eps <- c(3.5, 7)
       } else if (seed.data == 123456+1) {
         opt.abc[[1]]$eps <- 1.4
         opt.abc[[2]]$eps <- c(2.4, 5)
@@ -133,7 +136,7 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
     opt.abc[[1]]$cov.adapt.e <- 10^-6
     opt.abc[[1]]$C <- diag(c(0.02, 0.25, 0.06)^2)
     
-    opt.abc[[1]]$summary <- 'orig' # 'orig', 'pred', 'pred2'
+    opt.abc[[1]]$summary <- 'orig' # 'orig', 'pred', 'pred2', 'predf'
     opt.abc[[1]]$d.n <- 1000 # for scaling of summaries
     opt.abc[[1]]$d.cov.method <- 'cov' # 'cov', 'stdev', 'mad'
     if (scenario == 201) {
@@ -144,7 +147,7 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
     
     # pred summary case:
     opt.abc[[2]] <- opt.abc[[1]]
-    opt.abc[[2]]$summary <- 'predf' # 'orig', 'pred', 'pred2'
+    opt.abc[[2]]$summary <- 'predf' # 'orig', 'pred', 'pred2', 'predf'
     
     # manually adjust suitable ABC threshold
     # acc prob ~2%
@@ -169,10 +172,9 @@ mg1.setup <- function(scenario, seed.data, seed.inf) {
         opt.abc[[2]]$eps <- c(6, 5)
       }
     }
-    
-    ############################################################################
   }
   
+  ##############################################################################
   ## COMMON PLOTTING SETTINGS
   plt$q <- c(0.10,0.25) # which CI level(s) to the plot, e.g. 0.10==90% central CI
   plt$pp.fig <- c(1,10,sce$n.pred) # where to predict in the figure

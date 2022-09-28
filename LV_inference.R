@@ -26,14 +26,15 @@ lv.inference <- function(opt, inf.task, plot.task) {
   set.seed(seed.data)
   obs <- lv.simul(theta.true, xy0, t.all, obs.noise.stdev)
   
+  # Run ABC analyses
   for (a in 1:length(opt.abc)) {
     if (!inf.task[a] || is.null(opt.abc[[a]])) {
       next
     }
     
     set.seed(seed.data)
-    # 1/3 infer parameters using ABC-MCMC
-    #####################################
+    # 1/4 infer parameters using ABC-MCMC (produces also ABC-P)
+    ###########################################################
     # set model
     # NOTE: parameters are in **log-domain**
     # NOTE2: simulated latent variables (future data, possible missing observations)
@@ -51,6 +52,7 @@ lv.inference <- function(opt, inf.task, plot.task) {
     prior.sim <- function() rmunif(1, log.prior.lb, log.prior.ub)
     
     # select summary statistics and discrepancy:
+    n.discr <- 6 # for 'pred2' summary only
     if (opt.abc[[a]]$summary=='misdata') {
       # "MISSING DATA" CASE
       sumstats <- function(xy) {
@@ -65,7 +67,7 @@ lv.inference <- function(opt, inf.task, plot.task) {
         s <- c(s, xy1[,ncol(xy1)], xy2[,1])
         return(s)
       }
-    } else if (any(opt.abc[[a]]$summary==c('orig','pred'))) {
+    } else if (any(opt.abc[[a]]$summary==c('orig','pred','pred2'))) {
       # INFERENCE/PREDICTION CASE
       sumstats <- function(xy) {
         if (is.list(xy)) {xy <- xy$y.sims}
@@ -81,6 +83,8 @@ lv.inference <- function(opt, inf.task, plot.task) {
         # summaries for *prediction*:
         if (opt.abc[[a]]$summary=='pred') {
           s <- c(s, xy[,n])
+        } else if (opt.abc[[a]]$summary=='pred2') {
+          s <- c(s, xy[,(n-n.discr+1):n])
         }
         return(s)
       }
@@ -94,6 +98,8 @@ lv.inference <- function(opt, inf.task, plot.task) {
       sdim.not <- 2*sum(xy.ind)
     } else if (opt.abc[[a]]$summary=='pred') {
       sdim.not <- sum(xy.ind)
+    } else if (opt.abc[[a]]$summary=='pred2') {
+      sdim.not <- n.discr*sum(xy.ind)
     }
     
     sumstats.obs <- sumstats(obs$xyobs) # observed summary
@@ -123,17 +129,30 @@ lv.inference <- function(opt, inf.task, plot.task) {
     save(res.abc, obs, opt, file = opt$fn.samples[a])
   }
   
-  # Special simulations for computing the approx. true result in 'mis.data' case
-  ##############################################################################
-  if (inf.task[length(opt.abc)+1] && t2 > 0 && obs.noise.stdev == 0) {
+  # 2/4 Compute the approx. true result in 'mis.data' and one obs. popul. case
+  # This can be expensive so we precompute it here.
+  ############################################################################
+  if(1 && inf.task[length(opt.abc)+1] && t2 == 0 && obs.noise.stdev == 0 && !all(xy.ind)) {
+    # One observed population case
+    if (opt.plt$pr) {cat('Computing approx. true result...\n')}
+    set.seed(seed.inf)
+    res.atrue <- part.data.approx.true(xy0, theta.true, t.all, n, obs, xy.ind, obs.noise.stdev, part.opt, opt.plt$q)
+    
+    save(res.atrue, obs, opt, file = part.opt$fn.samples)
+    if (opt.plt$pr) {cat('Computation done!\n')}
+    
+  } else if (inf.task[length(opt.abc)+1] && t2 > 0 && obs.noise.stdev == 0) {
+    # 'Missing data' case
     if (opt.plt$pr) {cat('Computing approx. true result...\n')}
     set.seed(seed.inf)
     res.atrue <- mis.data.approx.true(obs$xyobs[,n], theta.true, t.end, t.all[ind.pred], t.all[ind.obs2[1]], 
-                                      obs, ind.obs2, obs.noise.stdev, mis.obs, opt.plt$q)
-    save(res.atrue, obs, opt, file = mis.obs$fn.samples)
+                                      obs, ind.obs2, obs.noise.stdev, mis.opt, opt.plt$q)
+    save(res.atrue, obs, opt, file = mis.opt$fn.samples)
     if (opt.plt$pr) {cat('Computation done!\n')}
   }
   
+  
+  # Compute the rest of the ABC results (fast) and then plot/analyze them
   if (plot.task) {
     graphics.off()
     set.seed(seed.data)
@@ -152,29 +171,38 @@ lv.inference <- function(opt, inf.task, plot.task) {
       } 
     }
     
-    # Predictive distribution based on true theta and true population sizes at time n.
-    # This applies for the standard prediction case. An approximate solution to 
-    # the 'missing data' case is also implemented. 
+    # Get the (approx.) 'true' predictive distribution.
     res.true <- NA
-    if (t2 == 0) {
-      if (any(is.na(obs$xy))) {
-        xy0p <- obs$xyobs[,n] # non-noisy case
-      } else {
-        xy0p <- obs$xy[,n] # noisy case
-      }
-      res.true <- lv.pred(xy0p, theta.true, t.end, t.all[ind.pred], obs.noise.stdev, opt.plt$q)
-    } else if (t2 > 0 && obs.noise.stdev == 0) {
-      load(file = mis.obs$fn.samples) # 'res.atrue' is pre-computed
+    if (1 && t2 == 0 && obs.noise.stdev == 0 && !all(xy.ind)) {
+      # One observed population case
+      load(file = part.opt$fn.samples) # 'res.atrue' is pre-computed
       res.true <- res.atrue # allows to conveniently use existing plotting code
       cat('max distance:\n')
       print(res.true$d.eps)
       cat('number of accepted simulations:\n')
       print(res.true$n)
+      
+    } else if (t2 > 0 && obs.noise.stdev == 0) {
+      # 'Missing data' case
+      load(file = mis.opt$fn.samples) # 'res.atrue' is pre-computed
+      res.true <- res.atrue # allows to conveniently use existing plotting code
+      cat('max distance:\n')
+      print(res.true$d.eps)
+      cat('number of accepted simulations:\n')
+      print(res.true$n)
+      
+    } else if (t2 == 0) {
+      if (obs.noise.stdev == 0) {
+        xy0p <- obs$xyobs[,n] # non-noisy case
+      } else {
+        xy0p <- obs$xy[,n] # noisy case, implemented also here although xy0p unknown
+      }
+      res.true <- lv.pred(xy0p, theta.true, t.end, t.all[ind.pred], obs.noise.stdev, opt.plt$q)
     }
     
-    # 2/3 ABC with exact predictive simulation
-    ##########################################
-    # We use the ABC posterior with 'ordinary' summary -> No separate parameter fitting
+    # 3/4 ABC with exact predictive simulation (ABC-F)
+    ##################################################
+    # We use the ABC posterior with 'ordinary' summary -> No separate parameter fitting.
     # This applies for the non-noisy standard prediction case when prey/predator both observed.
     res.abcf <- NA
     if (t2 == 0 && obs.noise.stdev == 0 && all(xy.ind)) {
@@ -182,11 +210,10 @@ lv.inference <- function(opt, inf.task, plot.task) {
       res.abcf <- lv.pred(xy0p, res.abca[[1]]$thetas, t.end, t.all[ind.pred], obs.noise.stdev, opt.plt$q)
     }
     
-    # 3/3 ABC with exact predictive simulation and simulated latent populations
-    ###########################################################################
-    # We use the ABC posterior with 'predictive' summary -> No separate parameter fitting
-    # This is now implemented only for the case where only prey or predator is observed
-    # and when the evaluations are noiseless.
+    # 4/4 ABC with exact predictive simulation and simulated latent populations (ABC-L)
+    ###################################################################################
+    # We use the ABC posterior with 'predictive' summary -> No separate parameter fitting.
+    # This is implemented only for the non-noisy case with one observed population.
     res.abclat <- NA
     if (t2 == 0 && obs.noise.stdev == 0 && !all(xy.ind)) {
       if (xy.ind[1]) {
@@ -197,8 +224,6 @@ lv.inference <- function(opt, inf.task, plot.task) {
       res.abclat <- lv.pred(xy0p, res.abca[[2]]$thetas, t.end, t.all[ind.pred], obs.noise.stdev, opt.plt$q)
     }
     
-    ## PLOT RESULTS
-    ###############
     # plot MCMC chains
     for (a in 1:length(opt.abc)) {
       if (!is.null(opt.abc[[a]])) {
@@ -213,6 +238,9 @@ lv.inference <- function(opt, inf.task, plot.task) {
     
     # plot prediction
     lv.plot.pred(obs, xy.ind, t.all, ind.obs, ind.obs2, ind.pred, res.abca, res.abcf, res.abclat, res.true, opt)
+    
+    # plot prediction error (added for v2)
+    lv.plot.pred.err(obs, t.all, ind.obs, ind.obs2, ind.pred, res.abca, res.abcf, res.abclat, res.true, opt)
   }
   invisible()
 }
@@ -231,33 +259,74 @@ lv.mean.sd.acf12 <- function(x) {
   #return(c(acf(x,lag.max=2,plot=F)$acf[2:3])) # seems slower
 }
 
-mis.data.approx.true <- function(xy0p, theta.true, t.end, t.preds, t2.start, obs, 
-                                 ind.obs2, obs.noise.stdev, mis.obs, q) {
-  # Computes approximately the true prediction for the 'mis.data' case. It is 
-  # assumed that the true parameter value is known and the prediction is matched
-  # exactly at the beginning and approximately at the end prediction point. 
+part.data.approx.true <- function(xy0, theta.true, t.all, n, obs, xy.ind, obs.noise.stdev, part.opt, q) {
+  # Computes approximately the true prediction when only one of the populations
+  # is observed. It is assumed that the true parameter is known and some last 
+  # observed populations are matched approximately. 
   
+  t.preds <- t.all[(n+1):length(t.all)]
   n.pred <- length(t.preds)
-  if (n.pred*mis.obs$n.samples > 10^8) {
+  n.sa <- part.opt$n.samples
+  # determine how many of the latest observations are matched to simulations
+  #n.discr <- 1 # used initially
+  n.discr <- 6
+  n.discr <- min(n.discr,n-1)
+  ind.discr <- (n-n.discr+1):n
+  
+  if (n.pred*n.sa > 10^8) {
     stop('Too much memory needed.') # TODO: all simulations currently saved to memory
   }
-  x.preds <- matrix(NA,n.pred,mis.obs$n.samples)
-  y.preds <- matrix(NA,n.pred,mis.obs$n.samples)
-  ds <- rep(NA,mis.obs$n.samples)
+  x.preds <- matrix(NA,n.pred,n.sa)
+  y.preds <- matrix(NA,n.pred,n.sa)
+  ds <- rep(NA,n.sa)
   # first simulate all
-  for (j in 1:mis.obs$n.samples) {
+  for (j in 1:n.sa) {
+    # we simulate only at those timepoints that are needed
+    preds <- lv.simul(theta.true, xy0, c(t.all[1],t.all[ind.discr],t.preds), obs.noise.stdev)
+    ds[j] <- max(abs(preds$xyobs[xy.ind,2:(n.discr+1)] - obs$xyobs[xy.ind,ind.discr]))
+    x.preds[,j] <- preds$xyobs[1,(n.discr+2):(n.pred+n.discr+1)] # observed part neglected
+    y.preds[,j] <- preds$xyobs[2,(n.discr+2):(n.pred+n.discr+1)]
+  }
+  # select those simulations with the smallest distances
+  n.final <- min(part.opt$n.final, n.sa)
+  return(handle.simul.dist(x.preds, y.preds, t.preds, ds, n.final, q))
+}
+
+mis.data.approx.true <- function(xy0p, theta.true, t.end, t.preds, t2.start, obs, 
+                                 ind.obs2, obs.noise.stdev, mis.opt, q) {
+  # Computes approximately the true prediction for the 'mis.data' case. The true
+  # parameter is assumed known and the prediction is matched exactly at the 
+  # beginning and approximately at the end prediction point. 
+  
+  n.pred <- length(t.preds)
+  n.sa <- mis.opt$n.samples
+  if (n.pred*n.sa > 10^8) {
+    stop('Too much memory needed.') # TODO: all simulations currently saved to memory
+  }
+  x.preds <- matrix(NA,n.pred,n.sa)
+  y.preds <- matrix(NA,n.pred,n.sa)
+  ds <- rep(NA,n.sa)
+  # first simulate all
+  for (j in 1:n.sa) {
     preds <- lv.simul(theta.true, xy0p, c(t.end,t.preds,t2.start), obs.noise.stdev)
     ds[j] <- max(abs(preds$xyobs[,n.pred+2] - obs$xyobs[,ind.obs2[1]]))
     x.preds[,j] <- preds$xyobs[1,2:(n.pred+1)] # first and last timepoint neglected
     y.preds[,j] <- preds$xyobs[2,2:(n.pred+1)]
   }
   # select those simulations with the smallest distances (at the last timepoint)
-  n.final <- min(mis.obs$n.final, mis.obs$n.samples)
+  n.final <- min(mis.opt$n.final, n.sa)
+  return(handle.simul.dist(x.preds, y.preds, t.preds, ds, n.final, q))
+}
+
+handle.simul.dist <- function(x.preds, y.preds, t.preds, ds, n.final, q) {
+  # Help function that handles the selection of smallest distances.
+  
   d.eps <- sort(ds)[n.final]
   inds <- which(ds<=d.eps) # can actually produce >n.final samples but this is ok
   x.preds <- x.preds[,inds]
   y.preds <- y.preds[,inds]
-  res.atrue <- list(d.eps=d.eps, n=length(inds), x.preds=x.preds,y.preds=y.preds)
+  res.atrue <- list(d.eps=d.eps, n=length(inds), x.preds=x.preds, y.preds=y.preds)
+  
   # compute the quantiles for plotting already here:
   res.atrue$pred.stats.x <- pred.post.stats(x.preds, q, T, t.preds)
   res.atrue$pred.stats.y <- pred.post.stats(y.preds, q, T, t.preds)
@@ -296,13 +365,14 @@ lv.pred <- function(xyns, thetas, t.end, t.preds, obs.noise.stdev, q) {
     x.preds[,j] <- preds$xyobs[1,2:(n.pred+1)]
     y.preds[,j] <- preds$xyobs[2,2:(n.pred+1)]
   }
-  pred <- list()
+  pred <- list(x.preds=x.preds, y.preds=y.preds)
   pred$pred.stats.x <- pred.post.stats(x.preds, q, T, t.preds)
   pred$pred.stats.y <- pred.post.stats(y.preds, q, T, t.preds)
   return(pred)
 }
 
 ################################################################################
+# Plotting etc. functions:
 
 lv.plot.params <- function(res.abca, theta.true, opt, log.th=F) {
   # Plots posterior densities obtained using ABC. Plots either the parameters 
@@ -313,11 +383,11 @@ lv.plot.params <- function(res.abca, theta.true, opt, log.th=F) {
   cols <- c('black','red','blue')
   
   d <- length(theta.true)
-  kde <- function(samples) density(samples, adjust = 1.2)
+  kde <- function(samples) density(samples, adjust = 1.3)
   fn <- file.path(opt$save.loc, paste0(ifelse(log.th,'params_plot_log','params_plot'),opt$fn.ext,'.pdf'))
   pdf(file=fn, width = 2*d, height = 2)
   par(mfrow=c(1,d))
-  par(mai=c(0.45,0.2,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.35,0.15,0.01,0.07), mgp=c(1.8,0.5,0))
   if (log.th) {
     f <- function(x) log(x)
   } else {
@@ -343,7 +413,10 @@ lv.plot.params <- function(res.abca, theta.true, opt, log.th=F) {
       }
     }
     if (i==1) {
-      legend(x='topleft', inset = c(0.02,0.02), legend=ins[m], col=cols[m], lty=rep(1,sum(m)), bg = "white", cex=0.6)
+      leloc <- 'topleft'
+      # ad hoc fix for legend placement:
+      if (opt$scenario==201) {leloc <- 'topright'}
+      legend(x=leloc, inset = c(0.02,0.02), legend=ins[m], col=cols[m], lty=rep(1,sum(m)), bg = "white", cex=0.6)
     }
   }
   dev.off()
@@ -449,4 +522,114 @@ lv.plot.single.pred <- function(t, stats, col, lw, type='l') {
     lines(t, stats$l2, type = type, col = col, lty = 'dotdash', lwd=lw)
   }
 }
+
+lv.plot.pred.err <- function(obs, t.all, ind.obs, ind.obs2, ind.pred, res.abca, res.abcf, res.abclat, res.true, opt) {
+  # Plots prediction error as a function of time. Prints also corresponding mean errors. 
+  # Quickly made for v2 of the paper. 
+  
+  only.print <- F # whether to only print the results and not plot the figure
+  crit <- 'ae' # which error criterion
+  critn <- 'Abs. error'
+  #library(latex2exp)
+  #ins <- TeX(c('ABC-P, $s^{(0)}$','ABC-P, $s^{(1)}$','ABC-L, $s^{(1)}$','ABC-F, $s^{(0)}$'))
+  cols <- c('red','blue','orange','orange')
+  lw <- 1.5
+  popn <- c('Prey','Predator')
+  
+  # first compute errors
+  err <- array(NA,c(4,2,length(ind.pred))) # size: #ABC methods x #populations x #timepoints
+  for (id in 1:2) {
+    err[1,id,] <- pred.dens.err(res.abca[[1]], res.true, ind.pred, id, crit)
+    err[2,id,] <- pred.dens.err(res.abca[[2]], res.true, ind.pred, id, crit)
+    err[3,id,] <- pred.dens.err(res.abclat, res.true, ind.pred, id, crit)
+    err[4,id,] <- pred.dens.err(res.abcf, res.true, ind.pred, id, crit)
+  }
+    
+  # print computed errors
+  mean.err <- round(rowMeans(err),2) # averaged over populs and timepoints
+  nms <- c('ABC-P (s0)', 'ABC-P (s1)', 'ABC-L (s1)', 'ABC-F (s0)')
+  names(mean.err) <- nms
+  cat('\n')
+  print(crit)
+  print(mean.err)
+  
+  # print also stdevs e.g. at the first prediction point
+  if (1) {
+    #id.stdev <- 2 # which population
+    fut.pt.ind <- 1
+    #fut.pt.ind <- 60
+    for (id.stdev in 1:2) {
+      stdevs <- rep(NA,5) # stdevs e.g. at the first pred point
+      stdevs[1] <- pred.dens.stdev(res.true, ind.pred, id.stdev)[fut.pt.ind]
+      stdevs[2] <- pred.dens.stdev(res.abca[[1]], ind.pred, id.stdev)[fut.pt.ind]
+      stdevs[3] <- pred.dens.stdev(res.abca[[2]], ind.pred, id.stdev)[fut.pt.ind]
+      stdevs[4] <- pred.dens.stdev(res.abclat, ind.pred, id.stdev)[fut.pt.ind]
+      stdevs[5] <- pred.dens.stdev(res.abcf, ind.pred, id.stdev)[fut.pt.ind]
+      stdevs <- round(stdevs,2)
+      names(stdevs) <- c('true pred',nms)
+      cat('\n')
+      print(paste0('stdevs of predictive densities, popul. ',id.stdev,':'))
+      print(stdevs)
+    }
+  }
+  
+  # plot prey/predator as different columns
+  if (only.print) {
+    return()
+  }
+  fn <- file.path(opt$save.loc, paste0('pred_plot_err',opt$fn.ext,'.pdf'))
+  pdf(file=fn, width = 6, height = 2.5)
+  par(mfrow=c(1,2))
+  for (id in 1:2) {
+    par(mai=c(0.5,0.6,0.05,0.05), mgp=c(1.5,0.5,0))
+    xl <- c(t.all[ind.pred[1]], t.all[ind.pred[length(ind.pred)]])
+    yl <- range(err[,,], na.rm = T)
+    yla <- paste0(critn,' (',popn[id],' popul.)')
+    plot(NULL, NULL, xlab = 't', ylab = yla, xlim = xl, ylim = yl)
+    #title(main = pop[id])
+    for (i in 1:4) {
+      if (all(!is.na(err[i,id,]))) {
+        lines(t.all[ind.pred], err[i,id,], type = 'l', col = cols[i], lty = 'solid', lwd=lw)
+      }
+    }
+  }
+  dev.off()
+}
+
+pred.dens.err <- function(res, res.true, ind.pred, id, crit='ae') {
+  # Computes the error between 'true' predictive density and corresponding ABC density. 
+  # NOTE: Computing of absolute error 'ae' currently only implemented. 
+  
+  if (is.na(res) || is.null(res) || is.na(res.true) || is.null(res.true)) {
+    return(NA)
+  }
+  # ad-hoc fix to handle ABC-P case where also predictions for observations included
+  n.pred <- length(ind.pred)
+  n.pred.res <- length(res$pred.stats.x$med)
+  inds <- 1:n.pred
+  if (n.pred < n.pred.res) {
+    inds <- ind.pred
+  }
+  if (id == 1) {
+    return(abs(res$pred.stats.x$med[inds]-res.true$pred.stats.x$med))
+  }
+  return(abs(res$pred.stats.y$med[inds]-res.true$pred.stats.y$med))
+}
+
+pred.dens.stdev <- function(res, ind.pred, id) {
+  # Returns the computed stdevs of the predictive densities.
+  if (is.na(res) || is.null(res)) {
+    return(NA)
+  }
+  n.pred <- length(ind.pred)
+  inds <- 1:n.pred
+  if (n.pred < length(res$pred.stats.x$stdev)) {
+    inds <- ind.pred
+  }
+  if (id == 1) {
+    return(res$pred.stats.x$stdev[inds])
+  }
+  return(res$pred.stats.y$stdev[inds])
+}
+
 

@@ -86,8 +86,8 @@ pred.post.stats <- function(samples, q, sm=F, x=NA) {
   # Computes mean, median and q-quantiles of some predictive distribution based
   # on given MCMC or ABC samples. 
   
-  qnames <- c('mean','med','u1','l1','u2','l2')
-  qs <- c(NA, 0.5, 1-q[1]/2, q[1]/2)
+  qnames <- c('mean','stdev','med','u1','l1','u2','l2')
+  qs <- c(NA, NA, 0.5, 1-q[1]/2, q[1]/2)
   if (length(q) >= 2) {
     qs <- c(qs, 1-q[2]/2, q[2]/2) # extra quantiles
   }
@@ -95,6 +95,8 @@ pred.post.stats <- function(samples, q, sm=F, x=NA) {
   for (i in 1:length(qs)) {
     if (i==1) {
       vals <- rowMeans(samples)
+    } else if (i==2) {
+      vals <- sqrt(rowVars(samples))
     } else {
       vals <- rowQuantiles(samples, probs = qs[i]) # 'matrixStats'
     }

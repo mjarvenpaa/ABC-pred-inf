@@ -17,7 +17,7 @@ simplemarkov.inference <- function() {
   source(file.path(opt$root,'help_functions.R'))
   dyn.load(file.path(opt$root,"simplemarkov_simul.so"))
   
-  inf.task <- 0
+  inf.task <- 1
   plot.task <- 1
   
   n <- 200 # obs.data size
@@ -89,17 +89,18 @@ simplemarkov.inference <- function() {
     sdim <- length(sumstats.obs)
     invW <- abc.dist.invW(sdim, sim.model, sumstats, opt.abc$d.n, opt.abc$d.cov.method, 
                           opt.abc$d.sim.method, th=theta.true, prior.sim, pr=T)
-    #invW[sdim,sdim] <- 1.1*invW[sdim,sdim] # some more weight to y_n-summary!
+    invW[sdim,sdim] <- 1.1*invW[sdim,sdim] # some more weight to y_n-summary!
     
     discr <- function(y.sim) {
       d <- sumstats(y.sim) - sumstats.obs
       return(sqrt(d%*%invW%*%d))
     }
     
-    opt.abc$C <- cov(t(res.mcmc$thetas))
+    opt.abc$C <- cov(t(res.mcmc$thetas)) # ABC-MCMC proposal set based on MCMC run here
     
     # Run ABC-MCMC!
     cat('Running ABC...\n')
+    set.seed(seed.inf)
     res.abc <- simple.abcmcmc(opt.abc$theta0, sim.model, log.prior, discr, opt.abc)
     cat('ABC done!\n')
     save(res.mcmc, res.abc, file = opt$fn.samples)
@@ -169,7 +170,8 @@ simplemarkov.mcmc <- function(theta0, y, ns) {
     cs[j] <- ((1-phis[j-1])*sumynon + y[n])/n + sqrt(sigma2s[j-1]/n)*rns[1,j]
     
     # phi:
-    phis[j] <- (sumcy - cs[j]*sumynon)/sumy2non + sqrt(1/sumy2non)*rns[2,j]
+    #phis[j] <- (sumcy - cs[j]*sumynon)/sumy2non + sqrt(1/sumy2non)*rns[2,j] # erraneous line in v1
+    phis[j] <- (sumcy - cs[j]*sumynon)/sumy2non + sqrt(sigma2s[j-1]/sumy2non)*rns[2,j]
     
     # sigma2:
     bj <- (sumy2 + phis[j]^2*sumy2non - 2*phis[j]*sumcy - 2*cs[j]*sumy + 

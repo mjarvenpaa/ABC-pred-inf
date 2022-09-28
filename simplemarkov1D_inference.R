@@ -1,7 +1,7 @@
 simplemarkov1D.inference <- function() {
   # 1D version, only c considered as a parameter to be estimated.
   # This code is used to generate the numerical results for the first Example 
-  # of the paper. 
+  # of the paper, in **Figure 1** and **Figure C.1** in appendix. 
   # TODO: Could use other approach for weighting the summaries in 'ABC2' case. 
   #
   # This function compares the following methods:
@@ -237,6 +237,7 @@ simplemarkov1D.pred.post.dens.mcmc <- function(xp, phi, s2, samples, pp, y.obs, 
 }
 
 ################################################################################
+# Plotting etc. functions:
 
 simplemarkov1D.plot.params.and.pred <- function(res.cpost, y.pred.true, y.pred.post, res.abc, phi, s2, y.obs, n, pp.fig, opt) {
   # Plots posterior densities obtained using ABC and the baselines.
@@ -260,7 +261,7 @@ simplemarkov1D.plot.params.and.pred <- function(res.cpost, y.pred.true, y.pred.p
   fn <- file.path(opt$save.loc, paste0('params_pred_plot','_sce',opt$scenario,'.pdf'))
   pdf(file=fn, width = min(8,1.6*d), height = 2)
   par(mfrow=c(1,d))
-  par(mai=c(0.45,0.05,0.05,0.05), mgp=c(2,0.5,0))
+  par(mai=c(0.45,0.05,0.05,0.05), mgp=c(1.8,0.5,0))
   pabc <- vector('list',abc.rep)
   for (i in 1:d) {
     if (i==1) {
